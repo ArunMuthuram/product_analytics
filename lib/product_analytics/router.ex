@@ -31,6 +31,17 @@ defmodule ProductAnalytics.Router do
     |> send_resp(200, Jason.encode!(%{"data" => results}))
   end
 
+  get "/event_analytics" do
+    case ProductAnalytics.Repo.fetch_event_analytics(conn) do
+      {:ok, results} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(%{"data" => results}))
+
+      {:error, err_msg} ->
+        send_resp(conn, 400, err_msg)
+    end
+  end
 
   match _ do
     send_resp(conn, 404, "Not found")

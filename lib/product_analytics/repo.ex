@@ -78,15 +78,70 @@ defmodule ProductAnalytics.Repo do
   end
 
   defp query_by_event_name(event_name) do
-    query = from e in "events"
-    if event_name, do: (from e in query, where: e.event_name == ^event_name), else: query
+    query = from(e in "events")
+    if event_name, do: from(e in query, where: e.event_name == ^event_name), else: query
   end
 
   def fetch_user_analytics(%Plug.Conn{query_params: query_params}) do
     event_name = Map.get(query_params, "event_name", nil)
     query = query_by_event_name(event_name)
-    query = from e in query, group_by: e.user_id, order_by: [desc: max(e.event_time)],
-            select: %{"user_id" => e.user_id, "last_event_at" => max(e.event_time), "event_count" => count(e)}
+
+    query =
+      from(e in query,
+        group_by: e.user_id,
+        order_by: [desc: max(e.event_time)],
+        select: %{
+          "user_id" => e.user_id,
+          "last_event_at" => max(e.event_time),
+          "event_count" => count(e)
+        }
+      )
+
     ProductAnalytics.Repo.all(query)
+  end
+
+  defmacrop date_cast(date_time) do
+    quote do
+      fragment("DATE(?)", unquote(date_time))
+    end
+  end
+
+  def fetch_event_analytics(%Plug.Conn{query_params: query_params}) do
+    from = Map.get(query_params, "from", "")
+    to = Map.get(query_params, "to", "")
+    event_name = Map.get(query_params, "event_name", nil)
+
+    with {:ok, {from_utc, to_utc}} <- validate_range(from, to) do
+      query = query_by_event_name(event_name)
+
+      query =
+        from(e in query,
+          where: e.event_time >= ^from_utc and e.event_time <= ^to_utc,
+          group_by: date_cast(e.event_time),
+          order_by: date_cast(e.event_time),
+          select: %{
+            "date" => date_cast(e.event_time),
+            "count" => count(e),
+            "unique_count" => count(e.user_id, :distinct)
+          }
+        )
+
+      {:ok, ProductAnalytics.Repo.all(query)}
+    else
+      err -> err
+    end
+  end
+
+  defp validate_range(from, to) do
+    with {:ok, _} <- Date.from_iso8601(from),
+         {:ok, from_utc, _} <- DateTime.from_iso8601("#{from}T00:00:00Z"),
+         {:ok, _} <- Date.from_iso8601(to),
+         {:ok, to_utc, _} <- DateTime.from_iso8601("#{to}T23:59:59Z"),
+         :lt <- DateTime.compare(from_utc, to_utc) do
+      {:ok, {from_utc, to_utc}}
+    else
+      :gt -> {:error, "To date must be greater than From date"}
+      _ -> {:error, "From and to dates must be in the format yyyy-mm-dd"}
+    end
   end
 end
