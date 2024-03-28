@@ -23,6 +23,15 @@ defmodule ProductAnalytics.Router do
     end
   end
 
+  get "/user_analytics" do
+    results = ProductAnalytics.Repo.fetch_user_analytics(conn)
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(%{"data" => results}))
+  end
+
+
   match _ do
     send_resp(conn, 404, "Not found")
   end
